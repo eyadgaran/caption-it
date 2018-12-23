@@ -72,3 +72,41 @@ class MSCocoStreamingCaptionsRawDataset(BasePandasRawDataset):
     def get_feature_names(self):
         return self.get('X', TRAIN_SPLIT).columns.tolist()
 
+
+class MSCocoCaptionsDataset(BaseProcessedDataset, AbstractDatasetMixin):
+    '''
+    Processed unsupervised dataset with only captions
+    Can be used for tokenization and embeddings
+    '''
+    def build_dataframe(self):
+        '''
+        Overwrite base method to not require raw datasets/dataset pipelines
+        '''
+        self._external_file = {
+            TRAIN_SPLIT: self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True),
+            VALIDATION_SPLIT: self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True),
+            TEST_SPLIT: self.pipeline.transform(X=None, dataset_split=TEST_SPLIT, return_y=True)
+        }
+
+    def get(self, column, split):
+        if column not in ('X', 'y'):
+            raise ValueError('Only support columns: X & y')
+        if split not in (TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT):
+            raise ValueError('Only support splits: {}, {}, {}'.format(
+                TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT))
+
+        x, y = self.dataframe.get(split)
+        if x is None:
+            x = pd.DataFrame()
+        if y is None:
+            y = pd.DataFrame()
+
+        if column == 'y':
+            return y
+
+        else:
+            return x
+
+    def get_feature_names(self):
+        return ['X']
+
