@@ -1,0 +1,10 @@
+*.pyc
+*.log
+*.jpg
+*.jpeg
+*.png
+*.egg-info
+.DS_Store
+/data
+secret*
+.ipynb_checkpoints/
