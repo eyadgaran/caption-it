@@ -30,3 +30,10 @@ class UnsupervisedExplicitSplitDatasetPipeline(BaseExplicitSplitDatasetPipeline)
             TEST_SPLIT: (self.dataset.get('X', TEST_SPLIT).join(self.dataset.get('y', TEST_SPLIT)), None)
         }
 
+
+''' Production Pipelines '''
+
+class NoFitExplicitSplitProductionPipeline(BaseExplicitSplitProductionPipeline):
+    def __init__(self, *args, **kwargs):
+        super(NoFitExplicitSplitProductionPipeline, self).__init__(*args, **kwargs)
+        self.state['fitted'] = True

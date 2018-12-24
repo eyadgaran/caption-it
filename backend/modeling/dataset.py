@@ -110,3 +110,36 @@ class MSCocoCaptionsDataset(BaseProcessedDataset, AbstractDatasetMixin):
     def get_feature_names(self):
         return ['X']
 
+
+class MSCocoStreamingCaptionsEncodedDataset(BasePandasProcessedDataset, AbstractDatasetMixin):
+    '''
+    Use the Coco Dataset from Microsoft as a supervised caption source.
+    Can download all the data locally and stream/load into memory, but given
+    the size, this dataset will download images on the fly and store nothing
+    locally.
+
+    Format:
+    X                                    |   y
+    -------------------------------------------------------------------
+    url     |   Tokenized caption        |   Offset tokenized caption
+    -------------------------------------------------------------------
+    http:...|   [START,FIRST...END..PAD] |  [FIRST...END...PAD]
+    '''
+    def build_dataframe(self):
+        '''
+        Overwrite base method to not require raw datasets/dataset pipelines
+        '''
+        X, y = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True)
+        self._external_file = {
+            TRAIN_SPLIT: pd.concat((X, y), axis=1),
+            VALIDATION_SPLIT: pd.concat(self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True), axis=1),
+            TEST_SPLIT: pd.concat(self.pipeline.transform(X=None, dataset_split=TEST_SPLIT, return_y=True), axis=1)
+        }
+
+        if not self.label_columns:  # Skip if explicitly passed to constructor
+            if y is None:
+                y = pd.DataFrame()
+            self.config['label_columns'] = y.columns.tolist()
+
+    def get_feature_names(self):
+        return self.get('X', TRAIN_SPLIT).columns.tolist()
