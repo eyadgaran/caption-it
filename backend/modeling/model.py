@@ -5,33 +5,57 @@ Module to define the model(s) used
 __author__ = 'Elisha Yadgaran'
 
 
-from backend.modeling.constants import SPECIAL_TOKEN_MAP, UNK_TOKEN
-
+from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT
 from simpleml.models.base_model import BaseModel
 from simpleml.models.external_models import ExternalModelMixin
 from simpleml.models.base_keras_model import BaseKerasModel
+from simpleml.utils.errors import ModelError
 
 from sklearn.feature_extraction.text import CountVectorizer
 from keras.models import Model
 from keras.layers import Dense, Embedding, LSTM, TimeDistributed, Masking, Input
 from keras.optimizers import Adam
 import numpy as np
+import logging
+import types
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 class WrappedSklearnCountVectorizer(CountVectorizer, ExternalModelMixin):
+    def __init__(self, pad_token="#PAD#", unknown_token="um",
+                 start_token="#START#", end_token="#END#", **kwargs):
+        super(WrappedSklearnCountVectorizer, self).__init__(**kwargs)
+        self.pad_token = pad_token
+        self.unknown_token = unknown_token
+        self.start_token = start_token
+        self.end_token = end_token
+        self.pad_index = 0
+        self.start_index = 1
+        self.unknown_index = 2
+        self.end_index = 3
+
     def get_index(self, token):
-        if token in SPECIAL_TOKEN_MAP:
-            return SPECIAL_TOKEN_MAP.get(token)
-        return self.vocabulary_.get(token, SPECIAL_TOKEN_MAP[UNK_TOKEN])
+        return self.vocabulary_.get(token, self.vocabulary_.get(self.unknown_token))
 
     def get_token(self, index):
-        if index in SPECIAL_TOKEN_MAP.values():
-            return {v: k for k, v in SPECIAL_TOKEN_MAP.items()}.get(index)
-
         if not hasattr(self, 'reverse_vocab'):
             self.reverse_vocab = {v: k for k, v in self.vocabulary_.items()}
 
         return self.reverse_vocab.get(index)
+
+    def fit(self, *args, **kwargs):
+        super(WrappedSklearnCountVectorizer, self).fit(*args, **kwargs)
+        vocab = self.vocabulary_
+        special_tokens = [self.pad_token, self.start_token, self.unknown_token, self.end_token]
+        for token in special_tokens:
+            vocab.pop(token, None)
+        self.vocabulary_ = {token: index for index, token in enumerate(special_tokens + vocab.keys())}
+
+        # sanity check
+        for token, index in zip(special_tokens, [self.pad_index, self.start_index, self.unknown_index, self.end_index]):
+            assert(index == self.vocabulary_.get(token))
 
     def predict(self, X):
         '''
@@ -51,7 +75,7 @@ class WrappedSklearnCountVectorizer(CountVectorizer, ExternalModelMixin):
         '''
         return ' '.join(
             self.get_token(index) for index in index_list
-            if index not in SPECIAL_TOKEN_MAP.values()
+            if index not in [self.pad_index, self.start_index, self.end_index]
         ).strip()
 
 
@@ -59,8 +83,17 @@ class TextProcessor(BaseModel):
     def _create_external_model(self, **kwargs):
         return WrappedSklearnCountVectorizer(**kwargs)
 
-    def inverse_tansform(self, *args):
+    def inverse_transform(self, *args):
         return self.external_model.humanize_token_indices(*args)
+
+    @property
+    def initial_response(self):
+        '''
+        When a request first comes in, only the start token is available.
+        Subsequent output tokens are recursively fed back into the neural net
+        '''
+        return np.array([self.external_model.start_index])
+
 
 class WrappedKerasModel(Model, ExternalModelMixin):
     pass
