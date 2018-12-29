@@ -100,8 +100,79 @@ class WrappedKerasModel(Model, ExternalModelMixin):
 
 
 class TrainingImageDecoder(BaseKerasModel):
+class GeneratorKerasModel(BaseKerasModel):
     '''
     Network used for training only (real-time recurrent behavior is slightly different)
+    Extends Base Keras Model to support data generators for fitting
+
+    ONLY use with supporting pipeline!
+    '''
+    def fit(self, **kwargs):
+        '''
+        Pass through method to external model after running through pipeline
+        '''
+        if self.pipeline is None:
+            raise ModelError('Must set pipeline before fitting')
+
+        if self.state['fitted']:
+            LOGGER.warning('Cannot refit model, skipping operation')
+            return self
+
+        # Explicitly fit only on train split
+        train_generator = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
+        validation_generator = self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
+
+        self._fit(train_generator, validation_generator)
+
+        # Mark the state so it doesnt get refit and can now be saved
+        self.state['fitted'] = True
+
+        return self
+
+    def _fit(self, train_generator, validation_generator=None):
+        '''
+        Keras fit parameters (epochs, callbacks...) are stored as self.params so
+        retrieve them automatically
+        '''
+        # Generator doesnt take arbitrary params so pop the extra ones
+        extra_params = ['batch_size']
+        params = {k:v for k, v in self.get_params().items() if k not in extra_params}
+        # This throws graph errors for some reason
+        # self.external_model.fit_generator(
+        #     generator=train_generator, validation_data=validation_generator, **params)
+
+        epochs = params.get('epochs', 1)
+        steps_per_epoch = params.get('steps_per_epoch', 1)
+        validation_steps = params.get('validation_steps', 1)
+
+        step = 0
+        for epoch in range(epochs):
+            LOGGER.info('EPOCH: {}'.format(epoch))
+            for batch_x, batch_y in train_generator:
+                self.external_model.fit(batch_x, batch_y)
+                step += 1
+                if step >= steps_per_epoch:
+                    step = 0
+                    break
+            if validation_generator is not None:
+                for batch_x, batch_y in validation_generator:
+                    if len(batch_x) == 0:  # empty dataframe or ndarray
+                        break
+                    self.external_model.evaluate(batch_x, batch_y)
+                    step += 1
+                    if step >= validation_steps:
+                        step = 0
+                        break
+
+    def _predict(self, X):
+        '''
+        Keras returns class tuples (proba equivalent) so cast to single prediction
+        '''
+        if isinstance(X, types.GeneratorType):
+            return [self.external_model.predict(x) for x in X]
+
+        return self.external_model.predict(X)
+
     '''
     def _create_external_model(self, **kwargs):
         external_model = WrappedKerasModel
