@@ -13,8 +13,9 @@ __author__ = 'Elisha Yadgaran'
 from backend.database.initialization import SimpleMLDatabase
 from backend.modeling.dataset import *
 from backend.modeling.pipeline import *
+from backend.modeling.model import *
 from backend.modeling.transformer import *
-from backend.modeling.constants import *
+from backend.modeling.constants import PAD_TOKEN, START_TOKEN, END_TOKEN, PAD_LENGTH
 
 from simpleml.utils.training.create_persistable import RawDatasetCreator, DatasetPipelineCreator,\
     DatasetCreator, PipelineCreator, ModelCreator, MetricCreator
@@ -77,7 +78,10 @@ def train():
         'project': 'captioner', 'name': 'text_model', 'strict': False,
         'registered_name': 'TextProcessor',
         'external_model_kwargs': {'tokenizer': lambda token: token, 'min_df': 5,
-                                  'decode_error': 'ignore', 'lowercase': False}
+                                  'decode_error': 'ignore', 'lowercase': False,
+                                  'pad_token': PAD_TOKEN, 'start_token': START_TOKEN,
+                                  'end_token': END_TOKEN
+                                  }
     }
     text_model = ModelCreator.retrieve_or_create(
         pipeline=text_pipeline, **text_model_kwargs)
@@ -102,6 +106,7 @@ def train():
               ('duplicate_column', ColumnDuplicator(origin_column='y', destination_column='caption')),
               # Only add start to caption to keep y offset by one (predicting the next word)
               ('offset_y_values', OffsetValues(column='y', offset=1)),
+              ('reshape_y_values', ReshapeNDArray(column='y', dims=('*', 1))),
               ('offset_caption_values', OffsetValues(column='caption', offset=-1, reverse=True)),
               ('rename_columns', RenameColumns(name_dict={'coco_url': 'image'})),
         ]
@@ -124,9 +129,9 @@ def train():
               ('crop', CropImageToSquares(column='image')),
               ('resize', ResizeImage(column='image', final_dims=(224, 224))),
               ('split_dataframe', SplitDataframe(columns=['image'])),
-              ('dfs_to_matrices', TupleDataframesToMatrices()),
-              ('preprocess_tuple', TupleKerasInceptionV3ImagePreprocessor(index=0)),
-              ('encode', TupleInceptionV3Encoder(index=0)),
+              ('dfs_to_matrices', DataframesToMatrices()),
+              ('preprocess_tuple', ListKerasInceptionV3ImagePreprocessor(index=0)),
+              ('encode', ListInceptionV3Encoder(index=0)),
         ]
     }
     image_pipeline = PipelineCreator.retrieve_or_create(
@@ -135,12 +140,15 @@ def train():
     # Decoder
     image_model_kwargs = {
         'project': 'captioner', 'name': 'image_model', 'strict': False,
-        'registered_name': 'TrainingImageDecoder',
+        'registered_name': 'ImageDecoder',
         'external_model_kwargs': {
-            'vocabulary_size': len(LATEST_TEXT_MODEL.external_model.vocabulary_) + len(SPECIAL_TOKEN_MAP),
+            'vocabulary_size': len(LATEST_TEXT_MODEL.external_model.vocabulary_),
             'pad_length': PAD_LENGTH,
-            'pad_index': SPECIAL_TOKEN_MAP[PAD_TOKEN]
-        }
+            'pad_index': LATEST_TEXT_MODEL.external_model.pad_index
+        },
+        'params': {'shuffle': True, 'batch_size': 32, 'epochs': 30,
+                   'steps_per_epoch': 10, 'validation_steps': 50,
+                   'use_multiprocessing': False}
     }
     image_model = ModelCreator.retrieve_or_create(
         pipeline=image_pipeline, **image_model_kwargs)
