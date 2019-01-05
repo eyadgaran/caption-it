@@ -8,7 +8,7 @@ __author__ = 'Elisha Yadgaran'
 from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT
 from simpleml.models.base_model import BaseModel
 from simpleml.models.external_models import ExternalModelMixin
-from simpleml.models.base_keras_model import BaseKerasModel
+from simpleml.models.classifiers.keras.seq2seq import KerasEncoderDecoderClassifier
 from simpleml.utils.errors import ModelError
 
 from sklearn.feature_extraction.text import CountVectorizer
@@ -95,11 +95,7 @@ class TextProcessor(BaseModel):
         return np.array([self.external_model.start_index])
 
 
-class WrappedKerasModel(Model, ExternalModelMixin):
-    pass
-
-
-class GeneratorKerasModel(BaseKerasModel):
+class GeneratorKerasEncoderDecoder(KerasEncoderDecoderClassifier):
     '''
     Extends Base Keras Model to support data generators for fitting
 
@@ -162,27 +158,59 @@ class GeneratorKerasModel(BaseKerasModel):
                         step = 0
                         break
 
-    def _predict(self, X):
+    def _predict(self, X, end_index, max_length=None, **kwargs):
         '''
-        Keras returns class tuples (proba equivalent) so cast to single prediction
+        Inference network differs from training one so gets established dynamically
+        at inference time. Does NOT get persisted since the weights are duplicative
+        to the training ones. And the training network can in theory be updated
+        with new training data later
+
+        Runs full encoder/decoder loop
+        1) Encodes input into initial decoder state
+        2) Loops through decoder state until:
+            - End token is predicted
+            - Max length is reached
+
+        Generator Pipeline yields batches so yield batches as well
         '''
-        if isinstance(X, types.GeneratorType):
-            return [self.external_model.predict(x) for x in X]
+        self.check_for_models()
 
-        return self.external_model.predict(X)
+        # X is a generator tuple of encoder_input, decoder_input
+        for batch in X:
+            encoder_input, predicted_sequence = batch
+
+        # Encode the input as state vectors for the decoder.
+        encoder_states = self.encode(encoder_input)
+        decoder_states = [encoder_states, encoder_states]  # GRU uses single state vs lstm's h, c
+
+        while True:
+            decoder_output_and_states = self.decode([predicted_sequence] + decoder_states)
+            decoder_prediction = decoder_output_and_states[0]
+            decoder_states = decoder_output_and_states[1:]  # Multiple for lstm, single for gru
+
+            # Next tokens
+            next_tokens = np.argmax(decoder_prediction, axis=1).reshape(-1, 1)
+            if len(predicted_sequence.shape) == 1:  # 1d array
+                axis = 0
+            else:
+                axis = 1
+            predicted_sequence = np.concatenate([predicted_sequence, next_tokens], axis=axis)
+
+            # Exit conditions
+            # TODO: generic support for different length sequences
+            if (next_tokens == end_index).any() or (max_length is not None and predicted_sequence.shape[axis] >= max_length):
+                break
+
+        return predicted_sequence
 
 
-class ImageDecoder(GeneratorKerasModel):
+class ImageDecoder(GeneratorKerasEncoderDecoder):
     '''
     Networks used for training and predicting a seq2seq caption using
     an input image
     Dynamically creates inference network with training weights before predicting
     (real-time recurrent behavior is slightly different)
     '''
-    def _create_external_model(self, **kwargs):
-        external_model = WrappedKerasModel
-        return self.build_network(external_model, **kwargs)
-
     def build_network(self, model, **kwargs):
         '''
         training network
@@ -241,24 +269,24 @@ class ImageDecoder(GeneratorKerasModel):
         # word -> embedding
         caption_embeddings = Embedding(VOCABULARY_SIZE, WORD_EMBED_SIZE, name='caption_embedding')(padding_mask)
 
-        ####################
-        # Combined Decoder #
-        ####################
+        ###########
+        # Decoder #
+        ###########
         # lstm cell
-        lstm = LSTM(LSTM_UNITS, return_sequences=True, name='decoder_lstm')(caption_embeddings,
-                                                       initial_state=(initial_image_state, initial_image_state))
+        decoder_output = LSTM(LSTM_UNITS, return_sequences=True, name='decoder_lstm')(caption_embeddings,
+                              initial_state=(initial_image_state, initial_image_state))
 
         # we use bottleneck here to reduce model complexity
         # lstm output -> logits bottleneck
-        lstm_bottleneck = TimeDistributed(Dense(LOGIT_BOTTLENECK, activation="elu", name='decoder_bottleneck'))(lstm)
+        decoder_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='decoder_bottleneck')(decoder_output)
 
         # logits bottleneck -> logits for next token prediction
         # Generate it for each timestamp independently
-        next_token_prediction = Dense(VOCABULARY_SIZE, activation='softmax', name='prediction')(lstm_bottleneck)
+        next_token_prediction = Dense(VOCABULARY_SIZE, activation='softmax', name='prediction')(decoder_bottleneck)
 
         model = model([image_input, caption_input], next_token_prediction)
         model.compile(loss='sparse_categorical_crossentropy',
-                      optimizer=Adam(),
+                      optimizer='adam',
                       metrics=[])
 
         # print(model.summary())
@@ -286,9 +314,9 @@ class ImageDecoder(GeneratorKerasModel):
         LOGIT_BOTTLENECK = self.config.get('LOGIT_BOTTLENECK')
         VOCABULARY_SIZE = self.config.get('VOCABULARY_SIZE')
 
-        ###############
-        # Image Input #
-        ###############
+        #################
+        # Encoder Input #
+        #################
         # [batch_size, IMG_EMBED_SIZE] of CNN image features
         image_input = Input(shape=(IMG_EMBED_SIZE,), dtype='float32', name='image_input')
 
@@ -299,57 +327,34 @@ class ImageDecoder(GeneratorKerasModel):
         # image embedding bottleneck -> lstm initial state
         initial_image_state = Dense(LSTM_UNITS, activation='elu', name='image_context')(img_bottleneck)
 
+        encoder_model = model(image_input, initial_image_state)
+        encoder_model.compile(loss='sparse_categorical_crossentropy',
+                              optimizer='adam')
+
         #################
-        # Caption Input #
+        # Decoder Input #
         #################
         # [batch_size, time steps] of word ids
         caption_input = Input(shape=(None,), dtype='int32', name='caption_input')
+        decoder_state_h_input = Input(shape=(LSTM_UNITS,), dtype='float32', name='decoder_h_input')
+        decoder_state_c_input = Input(shape=(LSTM_UNITS,), dtype='float32', name='decoder_c_input')
 
         # word -> embedding
         caption_embeddings = Embedding(VOCABULARY_SIZE, WORD_EMBED_SIZE, name='caption_embeddings')(caption_input)
 
-        ####################
-        # Combined Decoder #
-        ####################
         # lstm cell
-        lstm = LSTM(LSTM_UNITS, return_sequences=False, name='decoder_lstm')(caption_embeddings,
-                                                       initial_state=(initial_image_state, initial_image_state))
+        decoder_output, state_h, state_c = LSTM(LSTM_UNITS, return_state=True, name='decoder_lstm')(caption_embeddings,
+                                                initial_state=[decoder_state_h_input, decoder_state_c_input])
 
         # we use bottleneck here to reduce model complexity
         # lstm output -> logits bottleneck
-        lstm_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='decoder_bottleneck')(lstm)
+        decoder_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='decoder_bottleneck')(decoder_output)
 
         # logits bottleneck -> logits for next token prediction
-        # Generate it for each timestamp independently
-        next_token_prediction = Dense(VOCABULARY_SIZE, activation='softmax', name='prediction')(lstm_bottleneck)
+        next_token_prediction = Dense(VOCABULARY_SIZE, activation='softmax', name='prediction')(decoder_bottleneck)
 
-        model = model([image_input, caption_input], next_token_prediction)
-        model.compile(loss='sparse_categorical_crossentropy',
-                      optimizer=Adam(),
-                      metrics=[])
+        decoder_model = model([caption_input, decoder_state_h_input, decoder_state_c_input], [next_token_prediction, state_h, state_c])
+        decoder_model.compile(loss='sparse_categorical_crossentropy',
+                              optimizer='adam')
 
-        return model
-
-    def transfer_weights(self, new_model, old_model):
-        new_layers = {i.name: i for i in new_model.layers}
-        old_layers = {i.name: i for i in old_model.layers}
-
-        for name, layer in new_layers.items():
-            if name in old_layers:
-                layer.set_weights(old_layers[name].get_weights())
-
-    def _predict(self, X):
-        '''
-        Inference network differs from training one so gets established dynamically
-        at inference time. Does NOT get persisted since the weights are duplicative
-        to the training ones. And the training network can in theory be updated
-        with new training data later
-        '''
-        if not hasattr(self, 'inference_model'):
-            self.inference_model = self.build_inference_network(WrappedKerasModel)
-            self.transfer_weights(new_model=self.inference_model, old_model=self.external_model)
-
-        if isinstance(X, types.GeneratorType):
-            return [self.inference_model.predict(x) for x in X]
-
-        return self.inference_model.predict(X)
+        return encoder_model, decoder_model
