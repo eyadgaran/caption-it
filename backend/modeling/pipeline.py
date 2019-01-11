@@ -5,9 +5,8 @@ Module to define the pipeline(s) used
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml.pipelines.dataset_pipelines.base_dataset_pipeline import BaseExplicitSplitDatasetPipeline
-from simpleml.pipelines.production_pipelines.base_production_pipeline import BaseExplicitSplitProductionPipeline
-from simpleml.pipelines.validation_split_mixins import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
+from simpleml.pipelines import BaseExplicitSplitPipeline
+from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
 from simpleml.utils.errors import PipelineError
 
 import numpy as np
@@ -16,7 +15,7 @@ import pandas as pd
 
 ''' Dataset Pipelines '''
 
-class UnsupervisedExplicitSplitDatasetPipeline(BaseExplicitSplitDatasetPipeline):
+class UnsupervisedExplicitSplitPipeline(BaseExplicitSplitPipeline):
     '''
     Converts supervised dataset into an usupervised one so transformers can manipulate labels
     '''
@@ -75,12 +74,12 @@ class GeneratorPipeline(object):
 
             if y is not None and (isinstance(y, (pd.DataFrame, pd.Series)) and not y.empty):
                 if isinstance(X, (pd.DataFrame, pd.Series)):
-                    yield X.iloc[batch], np.stack(y.iloc[batch].squeeze().values)
+                    yield X.loc[batch], np.stack(y.loc[batch].squeeze().values)
                 else:
                     yield X[batch], y[batch]
             else:
                 if isinstance(X, (pd.DataFrame, pd.Series)):
-                    yield X.iloc[batch], None
+                    yield X.loc[batch], None
                 else:
                     yield X[batch], None
 
@@ -118,7 +117,7 @@ class GeneratorPipeline(object):
             yield self.external_pipeline.transform(X, **kwargs)
 
 
-class NoFitExplicitSplitProductionPipeline(GeneratorPipeline, BaseExplicitSplitProductionPipeline):
+class NoFitExplicitSplitPipeline(GeneratorPipeline, BaseExplicitSplitPipeline):
     def __init__(self, *args, **kwargs):
-        super(NoFitExplicitSplitProductionPipeline, self).__init__(*args, **kwargs)
+        super(NoFitExplicitSplitPipeline, self).__init__(*args, **kwargs)
         self.state['fitted'] = True

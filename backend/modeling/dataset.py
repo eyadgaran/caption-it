@@ -5,16 +5,16 @@ Module to define the dataset(s) used for training and validation
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml.datasets.processed_datasets.base_processed_dataset import BaseProcessedDataset, BasePandasProcessedDataset
-from simpleml.datasets.raw_datasets.base_raw_dataset import BasePandasRawDataset
+from simpleml.datasets import BaseDataset, BasePandasDataset
 from simpleml.datasets.abstract_mixin import AbstractDatasetMixin
-from simpleml.pipelines.validation_split_mixins import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
+from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
 
 import pandas as pd
 import requests
 import zipfile
 import StringIO
 import json
+from sklearn.model_selection import train_test_split
 
 
 COCO_URL = 'http://images.cocodataset.org/annotations/annotations_trainval2017.zip'
@@ -22,7 +22,7 @@ TRAIN_FILE = 'annotations/captions_train2017.json'
 TEST_FILE = 'annotations/captions_val2017.json'
 
 
-class MSCocoStreamingCaptionsRawDataset(BasePandasRawDataset):
+class MSCocoStreamingCaptionsRawDataset(BasePandasDataset):
     '''
     Use the Coco Dataset from Microsoft as a supervised caption source.
     Can download all the data locally and stream/load into memory, but given
@@ -73,7 +73,7 @@ class MSCocoStreamingCaptionsRawDataset(BasePandasRawDataset):
         return self.get('X', TRAIN_SPLIT).columns.tolist()
 
 
-class MSCocoCaptionsDataset(BaseProcessedDataset, AbstractDatasetMixin):
+class MSCocoCaptionsDataset(BaseDataset, AbstractDatasetMixin):
     '''
     Processed unsupervised dataset with only captions
     Can be used for tokenization and embeddings
@@ -111,7 +111,7 @@ class MSCocoCaptionsDataset(BaseProcessedDataset, AbstractDatasetMixin):
         return ['X']
 
 
-class MSCocoStreamingCaptionsEncodedDataset(BasePandasProcessedDataset, AbstractDatasetMixin):
+class MSCocoStreamingCaptionsEncodedDataset(BasePandasDataset, AbstractDatasetMixin):
     '''
     Use the Coco Dataset from Microsoft as a supervised caption source.
     Can download all the data locally and stream/load into memory, but given
@@ -128,11 +128,15 @@ class MSCocoStreamingCaptionsEncodedDataset(BasePandasProcessedDataset, Abstract
     def build_dataframe(self):
         '''
         Overwrite base method to not require raw datasets/dataset pipelines
+        Also manually create a validation set (default doesnt have one)
         '''
         X, y = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True)
+        df = pd.concat((X, y), axis=1)
+        train_df, validation_df = train_test_split(df, test_size=0.2, random_state=42)
+
         self._external_file = {
-            TRAIN_SPLIT: pd.concat((X, y), axis=1),
-            VALIDATION_SPLIT: pd.concat(self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True), axis=1),
+            TRAIN_SPLIT: train_df,
+            VALIDATION_SPLIT: validation_df,
             TEST_SPLIT: pd.concat(self.pipeline.transform(X=None, dataset_split=TEST_SPLIT, return_y=True), axis=1)
         }
 

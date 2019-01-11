@@ -17,9 +17,9 @@ from backend.modeling.model import *
 from backend.modeling.transformer import *
 from backend.modeling.constants import PAD_TOKEN, START_TOKEN, END_TOKEN, PAD_LENGTH
 
-from simpleml.utils.training.create_persistable import RawDatasetCreator, DatasetPipelineCreator,\
+from simpleml.utils.training.create_persistable import \
     DatasetCreator, PipelineCreator, ModelCreator, MetricCreator
-from simpleml.pipelines.validation_split_mixins import TRAIN_SPLIT, TEST_SPLIT
+from simpleml import TRAIN_SPLIT, TEST_SPLIT
 from simpleml.utils.scoring.load_persistable import PersistableLoader
 
 from keras.callbacks import ModelCheckpoint, LearningRateScheduler, TensorBoard, EarlyStopping
@@ -37,31 +37,31 @@ def train():
         'registered_name': 'MSCocoStreamingCaptionsRawDataset',
         'label_columns': ['y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6']
     }
-    raw_dataset = RawDatasetCreator.retrieve_or_create(**text_raw_dataset_kwargs)
+    raw_dataset = DatasetCreator.retrieve_or_create(**text_raw_dataset_kwargs)
 
     # Text Processor
     text_dataset_pipeline_kwargs = {
-        'project': 'captioner', 'name': 'text_pipeline', 'strict': False,
-        'registered_name': 'UnsupervisedExplicitSplitDatasetPipeline',
+        'project': 'captioner', 'name': 'text_dataset_pipeline', 'strict': False,
+        'registered_name': 'UnsupervisedExplicitSplitPipeline',
         'transformers': [
               ('add_columns', AddDataframeColumns(columns=['y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6'])),
               ('isolate_captions', DropDataframeColumns(columns=['y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6'], drop=False)),
               ('stack_columns', StackDataframeColumns(name='captions'))
         ]
     }
-    text_dataset_pipeline = DatasetPipelineCreator.retrieve_or_create(
-        raw_dataset=raw_dataset, **text_dataset_pipeline_kwargs)
+    text_dataset_pipeline = PipelineCreator.retrieve_or_create(
+        dataset=raw_dataset, **text_dataset_pipeline_kwargs)
 
     text_dataset_kwargs = {
         'project': 'captioner', 'name': 'text_dataset', 'strict': False,
         'registered_name': 'MSCocoCaptionsDataset'
     }
     text_dataset = DatasetCreator.retrieve_or_create(
-        dataset_pipeline=text_dataset_pipeline, **text_dataset_kwargs)
+        pipeline=text_dataset_pipeline, **text_dataset_kwargs)
 
     text_pipeline_kwargs = {
         'project': 'captioner', 'name': 'text_pipeline', 'strict': False,
-        'registered_name': 'BaseExplicitSplitProductionPipeline',
+        'registered_name': 'BaseExplicitSplitPipeline',
         'transformers': [
               ('squeeze_to_series', SqueezeTransformer()),
               ('tokenize', NLTKTweetTokenizer(strip_handles=True, preserve_case=False, reduce_len=True)),
@@ -89,8 +89,8 @@ def train():
     # Encoder
     LATEST_TEXT_MODEL = PersistableLoader.load_model('text_model')
     image_dataset_pipeline_kwargs = {
-        'project': 'captioner', 'name': 'image_pipeline', 'strict': False,
-        'registered_name': 'UnsupervisedExplicitSplitDatasetPipeline',
+        'project': 'captioner', 'name': 'image_dataset_pipeline', 'strict': False,
+        'registered_name': 'UnsupervisedExplicitSplitPipeline',
         'transformers': [
               ('add_columns', AddDataframeColumns(columns=['coco_url', 'y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6'])),
               ('drop_metadata', DropDataframeColumns(columns=['coco_url', 'y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6'], drop=False)),
@@ -111,19 +111,19 @@ def train():
               ('rename_columns', RenameColumns(name_dict={'coco_url': 'image'})),
         ]
     }
-    image_dataset_pipeline = DatasetPipelineCreator.retrieve_or_create(
-        raw_dataset=raw_dataset, **image_dataset_pipeline_kwargs)
+    image_dataset_pipeline = PipelineCreator.retrieve_or_create(
+        dataset=raw_dataset, **image_dataset_pipeline_kwargs)
 
     image_dataset_kwargs = {
         'project': 'captioner', 'name': 'image_dataset', 'strict': False,
         'registered_name': 'MSCocoStreamingCaptionsEncodedDataset', 'label_columns': ['y']
     }
     image_dataset = DatasetCreator.retrieve_or_create(
-        dataset_pipeline=image_dataset_pipeline, **image_dataset_kwargs)
+        pipeline=image_dataset_pipeline, **image_dataset_kwargs)
 
     image_pipeline_kwargs = {
         'project': 'captioner', 'name': 'image_pipeline', 'strict': False,
-        'registered_name': 'NoFitExplicitSplitProductionPipeline',
+        'registered_name': 'NoFitExplicitSplitPipeline',
         'transformers': [
               ('load_images', ImageLoader(column='image')),
               ('crop', CropImageToSquares(column='image')),
@@ -146,9 +146,9 @@ def train():
             'pad_length': PAD_LENGTH,
             'pad_index': LATEST_TEXT_MODEL.external_model.pad_index
         },
-        'params': {'shuffle': True, 'batch_size': 32, 'epochs': 30,
-                   'steps_per_epoch': 10, 'validation_steps': 50,
-                   'use_multiprocessing': False}
+        'params': {'shuffle': True, 'batch_size': 32, 'epochs': 250,
+                   'steps_per_epoch': 100, 'validation_steps': 25,
+                   'use_multiprocessing': False, 'workers': 0}
     }
     image_model = ModelCreator.retrieve_or_create(
         pipeline=image_pipeline, **image_model_kwargs)

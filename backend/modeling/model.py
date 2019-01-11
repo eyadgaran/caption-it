@@ -6,9 +6,8 @@ __author__ = 'Elisha Yadgaran'
 
 
 from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT
-from simpleml.models.base_model import BaseModel
+from simpleml.models import BaseModel, KerasEncoderDecoderClassifier
 from simpleml.models.external_models import ExternalModelMixin
-from simpleml.models.classifiers.keras.seq2seq import KerasEncoderDecoderClassifier
 from simpleml.utils.errors import ModelError
 
 from sklearn.feature_extraction.text import CountVectorizer
@@ -131,32 +130,8 @@ class GeneratorKerasEncoderDecoder(KerasEncoderDecoderClassifier):
         # Generator doesnt take arbitrary params so pop the extra ones
         extra_params = ['batch_size']
         params = {k:v for k, v in self.get_params().items() if k not in extra_params}
-        # This throws graph errors for some reason
-        # self.external_model.fit_generator(
-        #     generator=train_generator, validation_data=validation_generator, **params)
-
-        epochs = params.get('epochs', 1)
-        steps_per_epoch = params.get('steps_per_epoch', 1)
-        validation_steps = params.get('validation_steps', 1)
-
-        step = 0
-        for epoch in range(epochs):
-            LOGGER.info('EPOCH: {}'.format(epoch))
-            for batch_x, batch_y in train_generator:
-                self.external_model.fit(batch_x, batch_y)
-                step += 1
-                if step >= steps_per_epoch:
-                    step = 0
-                    break
-            if validation_generator is not None:
-                for batch_x, batch_y in validation_generator:
-                    if len(batch_x) == 0:  # empty dataframe or ndarray
-                        break
-                    self.external_model.evaluate(batch_x, batch_y)
-                    step += 1
-                    if step >= validation_steps:
-                        step = 0
-                        break
+        self.external_model.fit_generator(
+            generator=train_generator, validation_data=validation_generator, **params)
 
     def _predict(self, X, end_index, max_length=None, **kwargs):
         '''
