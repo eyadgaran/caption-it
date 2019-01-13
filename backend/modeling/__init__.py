@@ -1,4 +1,4 @@
-import dataset
-import pipeline
-import model
-import transformer
+from . import dataset
+from . import pipeline
+from . import model
+from . import transformer

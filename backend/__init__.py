@@ -1,1 +1,1 @@
-import modeling
+from . import modeling

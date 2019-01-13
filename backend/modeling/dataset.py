@@ -12,7 +12,13 @@ from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
 import pandas as pd
 import requests
 import zipfile
-import StringIO
+
+# Python 2/3 compatibility
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from io import StringIO
+
 import json
 from sklearn.model_selection import train_test_split
 
@@ -34,7 +40,7 @@ class MSCocoStreamingCaptionsRawDataset(BasePandasDataset):
         # Download metadata zip
         zip_url = COCO_URL
         raw_response = requests.get(zip_url, stream=True)
-        zip_stream = zipfile.ZipFile(StringIO.StringIO(raw_response.content))
+        zip_stream = zipfile.ZipFile(StringIO(raw_response.content))
 
         return zip_stream
 

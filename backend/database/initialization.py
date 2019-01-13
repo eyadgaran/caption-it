@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
 import os
 from os.path import join, dirname, abspath
-import ConfigParser
+import configparser
 
 
 def parse_cnf(cnf_section):
@@ -20,7 +20,7 @@ def parse_cnf(cnf_section):
     :param cnf_section: cnf section title for param group
     :return: dictionary of parameters (None defaults to empty string)
     '''
-    config = ConfigParser.SafeConfigParser(allow_no_value=True)
+    config = configparser.SafeConfigParser(allow_no_value=True)
     config.read(os.getenv('CNF_FILE',
                           join(dirname(abspath(__file__)), 'secret.cnf')))
     parameter_dict = dict(config.items(cnf_section))
