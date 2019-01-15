@@ -164,7 +164,7 @@ def encode_all_images(df, pipeline):
     # 4) Save encoded images
     def save_encodings(encodings):
         for key, value in encodings.items():
-            np.save(os.path.join('encoded_images', key), value)
+            np.save(os.path.join(os.getenv('PREPROCESSED_IMAGE_PATH', 'encoded_images'), key), value)
 
     df = dedupe(df)
     batches = batch_df(df)
@@ -176,7 +176,7 @@ def encode_all_images(df, pipeline):
 
 def load_encodings(url):
     image_id = url.split('/')[-1]
-    return np.load(os.path.join('encoded_images', image_id + '.npy'))
+    return np.load(os.path.join(os.getenv('PREPROCESSED_IMAGE_PATH', 'encoded_images'), image_id + '.npy'))
 
 def preprocessed_generator(dataset, split, infinite_loop=False, batch_size=32, shuffle=True, **kwargs):
     X, y = dataset.get('X', split), dataset.get('y', split)
