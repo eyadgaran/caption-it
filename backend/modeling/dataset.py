@@ -17,7 +17,7 @@ import zipfile
 try:
     from cStringIO import StringIO
 except ImportError:
-    from io import StringIO
+    from io import BytesIO as StringIO
 
 import json
 from sklearn.model_selection import train_test_split

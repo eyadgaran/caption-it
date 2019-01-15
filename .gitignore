@@ -8,3 +8,4 @@
 /data
 secret*
 .ipynb_checkpoints/
+*.npy

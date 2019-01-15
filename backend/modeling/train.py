@@ -19,11 +19,14 @@ from backend.modeling.constants import PAD_TOKEN, START_TOKEN, END_TOKEN, PAD_LE
 
 from simpleml.utils.training.create_persistable import \
     DatasetCreator, PipelineCreator, ModelCreator, MetricCreator
-from simpleml import TRAIN_SPLIT, TEST_SPLIT
+from simpleml import TRAIN_SPLIT, TEST_SPLIT, VALIDATION_SPLIT
 from simpleml.utils.scoring.load_persistable import PersistableLoader
 
 from keras.callbacks import ModelCheckpoint, LearningRateScheduler, TensorBoard, EarlyStopping
 
+import numpy as np
+import pandas as pd
+import os
 from itertools import product
 
 
@@ -137,7 +140,17 @@ def train():
     image_pipeline = PipelineCreator.retrieve_or_create(
         dataset=image_dataset, **image_pipeline_kwargs)
 
+    # Preprocess for training speed
+    # encode_all_images(
+    #     pd.concat([
+    #         image_dataset.get('X', TRAIN_SPLIT),
+    #         image_dataset.get('X', VALIDATION_SPLIT)
+    #     ], axis=0),
+    #     image_pipeline)
+
     # Decoder
+    # early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=3, verbose=1, mode='auto')
+    # checkpoint = ModelCheckpoint('checkpoints/weights.{epoch:02d}-{val_loss:.2f}.hdf5', verbose=1, period=10)
     image_model_kwargs = {
         'project': 'captioner', 'name': 'image_model', 'strict': False,
         'registered_name': 'ImageDecoder',
@@ -147,11 +160,22 @@ def train():
             'pad_index': LATEST_TEXT_MODEL.external_model.pad_index
         },
         'params': {'shuffle': True, 'batch_size': 32, 'epochs': 250,
-                   'steps_per_epoch': 100, 'validation_steps': 25,
-                   'use_multiprocessing': False, 'workers': 0}
+                   'steps_per_epoch': 100, 'validation_steps': 50,
+                   'use_multiprocessing': False, 'workers': 0,
+                   'callbacks': []}
     }
-    image_model = ModelCreator.retrieve_or_create(
-        pipeline=image_pipeline, **image_model_kwargs)
+
+    # image_model = ModelCreator.retrieve_or_create(
+    #     pipeline=image_pipeline, **image_model_kwargs)
+
+    # Use preprocessed data
+    image_model = ImageDecoder(**image_model_kwargs)
+    image_model.add_pipeline(image_pipeline)
+    train_generator = preprocessed_generator(image_dataset, split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **image_model.get_params())
+    validation_generator = preprocessed_generator(image_dataset, split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **image_model.get_params())
+    image_model.external_model.load_weights('checkpoints/weights.20-1.95.hdf5')
+    image_model.fit(train_generator, validation_generator)
+    image_model.save()
 
 
 if __name__ == '__main__':

@@ -50,7 +50,7 @@ class WrappedSklearnCountVectorizer(CountVectorizer, ExternalModelMixin):
         special_tokens = [self.pad_token, self.start_token, self.unknown_token, self.end_token]
         for token in special_tokens:
             vocab.pop(token, None)
-        self.vocabulary_ = {token: index for index, token in enumerate(special_tokens + vocab.keys())}
+        self.vocabulary_ = {token: index for index, token in enumerate(special_tokens + list(vocab))}
 
         # sanity check
         for token, index in zip(special_tokens, [self.pad_index, self.start_index, self.unknown_index, self.end_index]):
@@ -186,6 +186,22 @@ class ImageDecoder(GeneratorKerasEncoderDecoder):
     Dynamically creates inference network with training weights before predicting
     (real-time recurrent behavior is slightly different)
     '''
+    def fit(self, train_generator=None, validation_generator=None, **kwargs):
+        '''
+        Overwrite parent method to optionally pass in the generator directly. Used
+        to speedup training by caching the transformed input before training the
+        model - avoids downloading, reading, encoding images in every batch
+        '''
+        if train_generator is None:
+            super(ImageDecoder, self).fit(**kwargs)
+        else:
+            self._fit(train_generator, validation_generator)
+
+            # Mark the state so it doesnt get refit and can now be saved
+            self.state['fitted'] = True
+
+            return self
+
     def build_network(self, model, **kwargs):
         '''
         training network
