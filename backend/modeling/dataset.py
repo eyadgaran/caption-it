@@ -5,7 +5,7 @@ Module to define the dataset(s) used for training and validation
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml.datasets import BaseDataset, BasePandasDataset
+from simpleml.datasets import Dataset, PandasDataset
 from simpleml.datasets.abstract_mixin import AbstractDatasetMixin
 from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
 
@@ -28,7 +28,7 @@ TRAIN_FILE = 'annotations/captions_train2017.json'
 TEST_FILE = 'annotations/captions_val2017.json'
 
 
-class MSCocoStreamingCaptionsRawDataset(BasePandasDataset):
+class MSCocoStreamingCaptionsRawDataset(PandasDataset):
     '''
     Use the Coco Dataset from Microsoft as a supervised caption source.
     Can download all the data locally and stream/load into memory, but given
@@ -79,7 +79,7 @@ class MSCocoStreamingCaptionsRawDataset(BasePandasDataset):
         return self.get('X', TRAIN_SPLIT).columns.tolist()
 
 
-class MSCocoCaptionsDataset(BaseDataset, AbstractDatasetMixin):
+class MSCocoCaptionsDataset(Dataset, AbstractDatasetMixin):
     '''
     Processed unsupervised dataset with only captions
     Can be used for tokenization and embeddings
@@ -117,7 +117,7 @@ class MSCocoCaptionsDataset(BaseDataset, AbstractDatasetMixin):
         return ['X']
 
 
-class MSCocoStreamingCaptionsEncodedDataset(BasePandasDataset, AbstractDatasetMixin):
+class MSCocoStreamingCaptionsEncodedDataset(PandasDataset, AbstractDatasetMixin):
     '''
     Use the Coco Dataset from Microsoft as a supervised caption source.
     Can download all the data locally and stream/load into memory, but given

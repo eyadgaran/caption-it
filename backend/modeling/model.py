@@ -6,17 +6,14 @@ __author__ = 'Elisha Yadgaran'
 
 
 from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT
-from simpleml.models import BaseModel, KerasEncoderDecoderClassifier
+from simpleml.models import Model, KerasEncoderDecoderClassifier
 from simpleml.models.external_models import ExternalModelMixin
 from simpleml.utils.errors import ModelError
 
 from sklearn.feature_extraction.text import CountVectorizer
-from keras.models import Model
 from keras.layers import Dense, Embedding, LSTM, TimeDistributed, Masking, Input
-from keras.optimizers import Adam
 import numpy as np
 import logging
-import types
 
 
 LOGGER = logging.getLogger(__name__)
@@ -78,7 +75,7 @@ class WrappedSklearnCountVectorizer(CountVectorizer, ExternalModelMixin):
         ).strip()
 
 
-class TextProcessor(BaseModel):
+class TextProcessor(Model):
     def _create_external_model(self, **kwargs):
         return WrappedSklearnCountVectorizer(**kwargs)
 
@@ -100,9 +97,13 @@ class GeneratorKerasEncoderDecoder(KerasEncoderDecoderClassifier):
 
     ONLY use with supporting pipeline!
     '''
-    def fit(self, **kwargs):
+    def fit(self, train_generator=None, validation_generator=None, **kwargs):
         '''
         Pass through method to external model after running through pipeline
+
+        Optionally overwrite normal method to pass in the generator directly. Used
+        to speedup training by caching the transformed input before training the
+        model - avoids downloading, reading, encoding images in every batch
         '''
         if self.pipeline is None:
             raise ModelError('Must set pipeline before fitting')
@@ -110,10 +111,10 @@ class GeneratorKerasEncoderDecoder(KerasEncoderDecoderClassifier):
         if self.state['fitted']:
             LOGGER.warning('Cannot refit model, skipping operation')
             return self
-
-        # Explicitly fit only on train split
-        train_generator = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
-        validation_generator = self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
+        if train_generator is None:
+            # Explicitly fit only on train split
+            train_generator = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
+            validation_generator = self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
 
         self._fit(train_generator, validation_generator)
 
@@ -179,29 +180,14 @@ class GeneratorKerasEncoderDecoder(KerasEncoderDecoderClassifier):
         return predicted_sequence
 
 
-class ImageDecoder(GeneratorKerasEncoderDecoder):
+class ImageContextCaptionDecoder(GeneratorKerasEncoderDecoder):
     '''
     Networks used for training and predicting a seq2seq caption using
-    an input image
+    an input image as the initial decoder state (does not feed the image in at
+    every timestep, only the states)
     Dynamically creates inference network with training weights before predicting
     (real-time recurrent behavior is slightly different)
     '''
-    def fit(self, train_generator=None, validation_generator=None, **kwargs):
-        '''
-        Overwrite parent method to optionally pass in the generator directly. Used
-        to speedup training by caching the transformed input before training the
-        model - avoids downloading, reading, encoding images in every batch
-        '''
-        if train_generator is None:
-            super(ImageDecoder, self).fit(**kwargs)
-        else:
-            self._fit(train_generator, validation_generator)
-
-            # Mark the state so it doesnt get refit and can now be saved
-            self.state['fitted'] = True
-
-            return self
-
     def build_network(self, model, **kwargs):
         '''
         training network
