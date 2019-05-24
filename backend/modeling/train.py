@@ -169,7 +169,7 @@ def train():
     #     pipeline=image_pipeline, **image_model_kwargs)
 
     # Use preprocessed data
-    image_model = ImageDecoder(**image_model_kwargs)
+    image_model = ImageCaptionDecoder(**image_model_kwargs)
     image_model.add_pipeline(image_pipeline)
     train_generator = preprocessed_generator(image_dataset, split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **image_model.get_params())
     validation_generator = preprocessed_generator(image_dataset, split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **image_model.get_params())

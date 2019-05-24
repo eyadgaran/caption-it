@@ -11,7 +11,9 @@ from simpleml.models.external_models import ExternalModelMixin
 from simpleml.utils.errors import ModelError
 
 from sklearn.feature_extraction.text import CountVectorizer
-from keras.layers import Dense, Embedding, LSTM, TimeDistributed, Masking, Input
+from keras.layers import Dense, Embedding, LSTM, TimeDistributed, Masking, Input,\
+    RepeatVector, concatenate, Lambda
+import keras.backend as K
 import numpy as np
 import logging
 
@@ -335,3 +337,227 @@ class ImageContextCaptionDecoder(GeneratorKerasEncoderDecoder):
                               optimizer='adam')
 
         return encoder_model, decoder_model
+
+
+class ImageCaptionDecoder(GeneratorKerasEncoderDecoder):
+    '''
+    Networks used for training and predicting a seq2seq caption using
+    an input image in every timestep
+    Dynamically creates inference network with training weights before predicting
+    (real-time recurrent behavior is slightly different)
+    '''
+    def build_network(self, model, **kwargs):
+        '''
+        training network
+
+        Input:
+            X = [image embedding, tokenized_caption]
+            y = [shifted_tokenized_caption]
+
+        Output:
+            y = [predicted_tokenized_captions]
+        '''
+        IMG_EMBED_SIZE = 2048  # InceptionV3 output
+        IMG_EMBED_BOTTLENECK = 120
+        WORD_EMBED_SIZE = 100
+        LSTM_UNITS = 300
+        LOGIT_BOTTLENECK = 120
+        VOCABULARY_SIZE = kwargs.get('vocabulary_size')
+        CAPTION_LENGTH = kwargs.get('pad_length') - 1  # Substract one because we dont predict the start token
+        PAD_INDEX = kwargs.get('pad_index')
+
+        # Save config values for later
+        new_configs =  {
+                'IMG_EMBED_SIZE': IMG_EMBED_SIZE,
+                'IMG_EMBED_BOTTLENECK': IMG_EMBED_BOTTLENECK,
+                'WORD_EMBED_SIZE': WORD_EMBED_SIZE,
+                'LSTM_UNITS': LSTM_UNITS,
+                'LOGIT_BOTTLENECK': LOGIT_BOTTLENECK,
+                'VOCABULARY_SIZE': VOCABULARY_SIZE,
+                'CAPTION_LENGTH': CAPTION_LENGTH,
+                'PAD_INDEX': PAD_INDEX,
+            }
+        self.config.update(new_configs)
+
+        ###############
+        # Image Input #
+        ###############
+        # [batch_size, IMG_EMBED_SIZE] of CNN image features
+        image_input = Input(shape=(IMG_EMBED_SIZE,), dtype='float32', name='image_input')
+
+        # we use bottleneck here to reduce the number of parameters
+        # image embedding -> bottleneck
+        img_bottleneck = Dense(IMG_EMBED_BOTTLENECK, activation='elu', name='image_bottleneck')(image_input)
+
+        # Repeat image to feed at every timestep
+        img_repeated = RepeatVector(CAPTION_LENGTH, name='image_repeated')(img_bottleneck)
+
+        #################
+        # Caption Input #
+        #################
+        # [batch_size, time steps] of word ids
+        caption_input = Input(shape=(CAPTION_LENGTH,), dtype='int32', name='caption_input')
+
+        # Mask padding
+        padding_mask = Masking(mask_value=PAD_INDEX)(caption_input)
+
+        # word -> embedding
+        caption_embeddings = Embedding(VOCABULARY_SIZE, WORD_EMBED_SIZE, name='caption_embedding')(padding_mask)
+
+        # lstm
+        caption_encoding = LSTM(LSTM_UNITS, return_sequences=True, name='caption_encoding')(caption_embeddings)
+
+        # we use bottleneck here to reduce model complexity
+        # lstm output -> logits bottleneck
+        caption_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='caption_bottleneck')(caption_encoding)
+
+        ###########
+        # Decoder #
+        ###########
+        # merge inputs
+        merged_encoding = concatenate([img_repeated, caption_bottleneck])
+
+        # lstm cell
+        decoder_output = LSTM(LSTM_UNITS, return_sequences=True, name='decoder_lstm')(merged_encoding)
+
+        # we use bottleneck here to reduce model complexity
+        # lstm output -> logits bottleneck
+        decoder_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='decoder_bottleneck')(decoder_output)
+
+        # logits bottleneck -> logits for next token prediction
+        # Generate it for each timestamp independently
+        next_token_prediction = Dense(VOCABULARY_SIZE, activation='softmax', name='prediction')(decoder_bottleneck)
+
+        model = model([image_input, caption_input], next_token_prediction)
+        model.compile(loss='sparse_categorical_crossentropy',
+                      optimizer='adam',
+                      metrics=[])
+
+        # print(model.summary())
+        # from keras.utils.vis_utils import plot_model
+        # plot_model(model, to_file='concat_model.png', show_shapes=True)
+
+        return model
+
+    def build_inference_network(self, model):
+        '''
+        Inference network - Differs from training one so gets established dynamically
+        at inference time
+
+        Input:
+            X = [image embedding, tokenized_caption]
+            y = [shifted_tokenized_caption]
+
+        Output:
+            y = [predicted_tokenized_captions]
+        '''
+        IMG_EMBED_SIZE = self.config.get('IMG_EMBED_SIZE')
+        IMG_EMBED_BOTTLENECK = self.config.get('IMG_EMBED_BOTTLENECK')
+        WORD_EMBED_SIZE = self.config.get('WORD_EMBED_SIZE')
+        LSTM_UNITS = self.config.get('LSTM_UNITS')
+        LOGIT_BOTTLENECK = self.config.get('LOGIT_BOTTLENECK')
+        VOCABULARY_SIZE = self.config.get('VOCABULARY_SIZE')
+
+        ###############
+        # Image Input #
+        ###############
+        # [batch_size, IMG_EMBED_SIZE] of CNN image features
+        image_input = Input(shape=(IMG_EMBED_SIZE,), dtype='float32', name='image_input')
+
+        # we use bottleneck here to reduce the number of parameters
+        # image embedding -> bottleneck
+        img_bottleneck = Dense(IMG_EMBED_BOTTLENECK, activation='elu', name='image_bottleneck')(image_input)
+
+        encoder_model = model(image_input, img_bottleneck)
+        encoder_model.compile(loss='sparse_categorical_crossentropy',
+                              optimizer='adam')
+        print(encoder_model.summary())
+
+        #################
+        # Decoder Input #
+        #################
+        # [batch_size, time steps] of word ids
+        caption_input = Input(shape=(None,), dtype='float32', name='caption_input')
+        decoder_image_input = Input(shape=(IMG_EMBED_BOTTLENECK,), dtype='float32', name='decoder_image_input')
+        # Repeat image to feed at every timestep
+        def repeat_vector(args):
+            layer_to_repeat, sequence_layer = args
+            return RepeatVector(K.shape(sequence_layer)[1], name='image_repeated')(layer_to_repeat)
+
+        img_repeated = Lambda(repeat_vector, output_shape=(None, IMG_EMBED_BOTTLENECK))([decoder_image_input, caption_input])
+
+        # word -> embedding
+        caption_embeddings = Embedding(VOCABULARY_SIZE, WORD_EMBED_SIZE, name='caption_embedding')(caption_input)
+
+        # lstm
+        caption_encoding = LSTM(LSTM_UNITS, return_sequences=True, name='caption_encoding')(caption_embeddings)
+
+        # we use bottleneck here to reduce model complexity
+        # lstm output -> logits bottleneck
+        caption_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='caption_bottleneck')(caption_encoding)
+
+        ###########
+        # Decoder #
+        ###########
+        # merge inputs
+        merged_encoding = concatenate([img_repeated, caption_bottleneck])
+
+        # lstm cell
+        decoder_output = LSTM(LSTM_UNITS, name='decoder_lstm')(merged_encoding)
+
+        # we use bottleneck here to reduce model complexity
+        # lstm output -> logits bottleneck
+        decoder_bottleneck = Dense(LOGIT_BOTTLENECK, activation="elu", name='decoder_bottleneck')(decoder_output)
+
+        # logits bottleneck -> logits for next token prediction
+        # Generate it for each timestamp independently
+        next_token_prediction = Dense(VOCABULARY_SIZE, activation='softmax', name='prediction')(decoder_bottleneck)
+
+        decoder_model = model([caption_input, decoder_image_input], next_token_prediction)
+        decoder_model.compile(loss='sparse_categorical_crossentropy',
+                              optimizer='adam')
+        print(decoder_model.summary())
+
+        return encoder_model, decoder_model
+
+    def _predict(self, X, end_index, max_length=None, **kwargs):
+        '''
+        Inference network differs from training one so gets established dynamically
+        at inference time. Does NOT get persisted since the weights are duplicative
+        to the training ones. And the training network can in theory be updated
+        with new training data later
+
+        Runs full encoder/decoder loop
+        1) Encodes input into initial decoder state
+        2) Loops through decoder state until:
+            - End token is predicted
+            - Max length is reached
+
+        Generator Pipeline yields batches so yield batches as well
+        '''
+        self.check_for_models()
+
+        # X is a generator tuple of encoder_input, decoder_input
+        for batch in X:
+            encoder_input, predicted_sequence = batch
+
+        # Encode the input as state vectors for the decoder.
+        encoded_image = self.encode(encoder_input)
+
+        while True:
+            decoder_prediction = self.decode([predicted_sequence, encoded_image])
+
+            # Next tokens
+            next_tokens = np.argmax(decoder_prediction, axis=1).reshape(-1, 1)
+            if len(predicted_sequence.shape) == 1:  # 1d array
+                axis = 0
+            else:
+                axis = 1
+            predicted_sequence = np.concatenate([predicted_sequence, next_tokens], axis=axis)
+
+            # Exit conditions
+            # TODO: generic support for different length sequences
+            if (next_tokens == end_index).any() or (max_length is not None and predicted_sequence.shape[axis] >= max_length):
+                break
+
+        return predicted_sequence.squeeze()
