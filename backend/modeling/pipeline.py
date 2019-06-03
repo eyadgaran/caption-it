@@ -5,7 +5,7 @@ Module to define the pipeline(s) used
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml.pipelines import ExplicitSplitGeneratorPipeline, ExplicitSplitPipeline
+from simpleml.pipelines import ExplicitSplitPipeline, Split
 from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
 
 import numpy as np
@@ -28,11 +28,11 @@ class UnsupervisedExplicitSplitPipeline(ExplicitSplitPipeline):
         Additionally assumes dataframes returned with matching indices to execute
         `.join` on
         '''
-        self._dataset_splits = {
-            TRAIN_SPLIT: (self.dataset.get('X', TRAIN_SPLIT).join(self.dataset.get('y', TRAIN_SPLIT)), None),
-            VALIDATION_SPLIT: (self.dataset.get('X', VALIDATION_SPLIT).join(self.dataset.get('y', VALIDATION_SPLIT)), None),
-            TEST_SPLIT: (self.dataset.get('X', TEST_SPLIT).join(self.dataset.get('y', TEST_SPLIT)), None)
-        }
+        self._dataset_splits = self.containerize_split({
+            TRAIN_SPLIT: Split(X=self.dataset.get('X', TRAIN_SPLIT).join(self.dataset.get('y', TRAIN_SPLIT))),
+            VALIDATION_SPLIT: Split(X=self.dataset.get('X', VALIDATION_SPLIT).join(self.dataset.get('y', VALIDATION_SPLIT))),
+            TEST_SPLIT: Split(X=self.dataset.get('X', TEST_SPLIT).join(self.dataset.get('y', TEST_SPLIT)))
+        })
 
 
 ''' Production Pipelines '''

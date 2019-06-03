@@ -5,8 +5,7 @@ Module to define the dataset(s) used for training and validation
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml.datasets import Dataset, PandasDataset
-from simpleml.datasets.abstract_mixin import AbstractDatasetMixin
+from simpleml.datasets import PandasDataset
 from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT
 
 import pandas as pd
@@ -72,7 +71,7 @@ class MSCocoStreamingCaptionsRawDataset(PandasDataset):
         self._external_file = self.concatenate_dataframes(
             dataframes=[self.load_metadata(zip, TRAIN_FILE),
                         self.load_metadata(zip, TEST_FILE)],
-            splits=[TRAIN_SPLIT, TEST_SPLIT]
+            split_names=[TRAIN_SPLIT, TEST_SPLIT]
         )
 
 
@@ -86,14 +85,14 @@ class MSCocoCaptionsDataset(PandasDataset):
         Overwrite base method to not require raw datasets/dataset pipelines
         '''
         self._external_file = self.concatenate_dataframes(
-            dataframes=[pd.concat(self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True), axis=1),
-                        pd.concat(self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True), axis=1),
-                        pd.concat(self.pipeline.transform(X=None, dataset_split=TEST_SPLIT, return_y=True), axis=1)],
-            splits=[TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT]
+            dataframes=[self.merge_split(self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT)),
+                        self.merge_split(self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT)),
+                        self.merge_split(self.pipeline.transform(X=None, dataset_split=TEST_SPLIT))],
+            split_names=[TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT]
         )
 
 
-class MSCocoStreamingCaptionsEncodedDataset(PandasDataset, AbstractDatasetMixin):
+class MSCocoStreamingCaptionsEncodedDataset(PandasDataset):
     '''
     Use the Coco Dataset from Microsoft as a supervised caption source.
     Can download all the data locally and stream/load into memory, but given
@@ -112,18 +111,20 @@ class MSCocoStreamingCaptionsEncodedDataset(PandasDataset, AbstractDatasetMixin)
         Overwrite base method to not require raw datasets/dataset pipelines
         Also manually create a validation set (default doesnt have one)
         '''
-        X, y = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True)
-        df = pd.concat((X, y), axis=1)
+        split = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT)
+        df = self.merge_split(split)
         train_df, validation_df = train_test_split(df, test_size=0.2, random_state=42)
 
         self._external_file = self.concatenate_dataframes(
             dataframes=[train_df,
                         validation_df,
-                        pd.concat(self.pipeline.transform(X=None, dataset_split=TEST_SPLIT, return_y=True), axis=1)],
-            splits=[TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT]
+                        self.merge_split(self.pipeline.transform(X=None, dataset_split=TEST_SPLIT))],
+            split_names=[TRAIN_SPLIT, VALIDATION_SPLIT, TEST_SPLIT]
         )
 
         if not self.label_columns:  # Skip if explicitly passed to constructor
-            if y is None:
-                y = pd.DataFrame()
-            self.config['label_columns'] = y.columns.tolist()
+            if split.y is None:
+                y = []
+            else:
+                y = split.y.columns.tolist()
+            self.config['label_columns'] = y
