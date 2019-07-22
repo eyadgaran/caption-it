@@ -1,11 +1,147 @@
+# Secret Stuff #
+################
+*secret*
+
+# Compiled source #
+###################
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.so
 *.pyc
-*.log
-*.jpg
-*.jpeg
-*.png
-*.egg-info
-.DS_Store
-/data
-secret*
-.ipynb_checkpoints/
+
+# Packages #
+############
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+# Logs, databases, and data stores #
+####################################
+*.log*
+*.sqlite
+*.rds
+*.csv
+*.pkl
+*.out
+*.tsv
+*.xls
+*.xlsx
+*.hdf5
 *.npy
+*.npx
+
+# OS generated files #
+######################
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Ipython notebooks #
+#####################
+.ipynb_checkpoints/
+*.ipynb
+
+# Miscellaneous #
+#################
+*.png
+chromedriver
+.idea
+*.pdf
+*.jpg
+*.fig
+*.html
+*.pptx
+*.docx
+
+# Hidden Files #
+################
+.*
+!.gitignore
+
+
+# Byte-compiled / optimized / DLL files #
+#########################################
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging #
+############################
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller #
+###############
+*.manifest
+*.spec
+
+# Installer logs #
+##################
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports #
+################################
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Translations #
+################
+*.mo
+*.pot
+
+# Django stuff: #
+#################
+*.log
+local_settings.py
+
+# Flask stuff: #
+################
+instance/
+.webassets-cache
+
+# Scrapy stuff: #
+#################
+.scrapy
+
+# Sphinx documentation #
+########################
+docs/_build/
+
+# PyBuilder #
+#############
+target/
