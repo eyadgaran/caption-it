@@ -1,0 +1,23 @@
+{% extends 'layouts/main.html' %}
+{% block title %}CaptionIt{% endblock %}
+{% block content %}
+
+<div class="page-header">
+  <h1>It's {{prediction}}!</h1>
+</div>
+
+<div class="container-fluid">
+  <img alt="Bootstrap Image Preview" src="data:image/png;base64,{{ image }}" class="img-rounded">
+  <form method=POST enctype=multipart/form-data action="{{ url_for('model_feedback') }}">
+      <input type="text" name="user_caption" placeholder="How would you caption this?">
+      <h2>How close was I??</h2>
+      <input type="hidden" name="prediction_id" value="{{ prediction_id }}">
+      <input type="submit" value="Bad :(" name="user_rank">
+      <input type="submit" value="Meh :/" name="user_rank">
+      <input type="submit" value="Good :)" name="user_rank">
+  </form>
+</div>
+
+
+
+{% endblock %}
