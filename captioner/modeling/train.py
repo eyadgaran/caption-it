@@ -10,12 +10,12 @@ __author__ = 'Elisha Yadgaran'
 # import logging
 # logging.getLogger("plaidml").setLevel(logging.CRITICAL)
 
-from backend.database.initialization import SimpleMLDatabase
-from backend.modeling.dataset import *
-from backend.modeling.pipeline import *
-from backend.modeling.model import *
-from backend.modeling.transformer import *
-from backend.modeling.constants import PAD_TOKEN, START_TOKEN, END_TOKEN, PAD_LENGTH
+from captioner.database.initialization import SimpleMLDatabase
+from captioner.modeling.dataset import *
+from captioner.modeling.pipeline import *
+from captioner.modeling.model import *
+from captioner.modeling.transformer import *
+from captioner.modeling.constants import PAD_TOKEN, START_TOKEN, END_TOKEN, PAD_LENGTH
 
 from simpleml.utils.training.create_persistable import \
     DatasetCreator, PipelineCreator, ModelCreator, MetricCreator

@@ -7,7 +7,7 @@ __author__ = 'Elisha Yadgaran'
 
 from quart import request, render_template, flash, redirect, url_for
 
-from backend.database.models import ModelHistory
+from captioner.database.models import ModelHistory
 from simpleml.utils import PersistableLoader
 import base64
 import pandas as pd

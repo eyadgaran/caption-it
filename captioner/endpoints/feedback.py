@@ -6,7 +6,7 @@ __author__ = 'Elisha Yadgaran'
 
 
 from quart import render_template, redirect, url_for, flash, request
-from backend.database.models import Feedback
+from captioner.database.models import Feedback
 
 
 async def feedback():
