@@ -28,9 +28,9 @@ O --\> DM
 O -- Text Processor --\> C[Predicted Caption]
 ```-->
 <a>
-  <img src="backend/static/img/workflow.svg">
+  <img src="captioner/static/img/workflow.svg">
   <br><br><br><br>
-  <img src="ackend/static/img/diagram.png">
+  <img src="captioner/static/img/diagram.png">
 </a>
 
 ## Dataset
