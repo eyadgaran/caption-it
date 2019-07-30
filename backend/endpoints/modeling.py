@@ -52,8 +52,7 @@ class ModelWrapper(object):
 
     def predict(self, image_source):
         with self.graph.as_default():
-            start = self.text_model.external_model.start_index
-            X = pd.DataFrame({'image': image_source, 'caption': [np.array([start])]})
+            X = pd.DataFrame({'image': image_source, 'caption': [self.text_model.initial_response]})
             tokens = self.image_model.predict(X, end_index=self.text_model.external_model.end_index, max_length=15)
             return self.text_model.inverse_transform(tokens[0])
 

@@ -5,10 +5,8 @@ Module to define the model(s) used
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml import TRAIN_SPLIT, VALIDATION_SPLIT
-from simpleml.models import Model, KerasEncoderDecoderClassifier
+from simpleml.models import SklearnModel, KerasEncoderDecoderStateClassifier, KerasEncoderDecoderStatelessClassifier
 from simpleml.models.external_models import ExternalModelMixin
-from simpleml.utils.errors import ModelError
 
 from sklearn.feature_extraction.text import CountVectorizer
 from keras.layers import Dense, Embedding, LSTM, TimeDistributed, Masking, Input,\
@@ -43,8 +41,8 @@ class WrappedSklearnCountVectorizer(CountVectorizer, ExternalModelMixin):
 
         return self.reverse_vocab.get(index)
 
-    def fit(self, *args, **kwargs):
-        super(WrappedSklearnCountVectorizer, self).fit(*args, **kwargs)
+    def fit(self, X, *args, **kwargs):
+        super(WrappedSklearnCountVectorizer, self).fit(X, *args, **kwargs)
         vocab = self.vocabulary_
         special_tokens = [self.pad_token, self.start_token, self.unknown_token, self.end_token]
         for token in special_tokens:
@@ -77,7 +75,7 @@ class WrappedSklearnCountVectorizer(CountVectorizer, ExternalModelMixin):
         ).strip()
 
 
-class TextProcessor(Model):
+class TextProcessor(SklearnModel):
     def _create_external_model(self, **kwargs):
         return WrappedSklearnCountVectorizer(**kwargs)
 
@@ -93,96 +91,7 @@ class TextProcessor(Model):
         return np.array([self.external_model.start_index])
 
 
-class GeneratorKerasEncoderDecoder(KerasEncoderDecoderClassifier):
-    '''
-    Extends Base Keras Model to support data generators for fitting
-
-    ONLY use with supporting pipeline!
-    '''
-    def fit(self, train_generator=None, validation_generator=None, **kwargs):
-        '''
-        Pass through method to external model after running through pipeline
-
-        Optionally overwrite normal method to pass in the generator directly. Used
-        to speedup training by caching the transformed input before training the
-        model - avoids downloading, reading, encoding images in every batch
-        '''
-        if self.pipeline is None:
-            raise ModelError('Must set pipeline before fitting')
-
-        if self.state['fitted']:
-            LOGGER.warning('Cannot refit model, skipping operation')
-            return self
-        if train_generator is None:
-            # Explicitly fit only on train split
-            train_generator = self.pipeline.transform(X=None, dataset_split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
-            validation_generator = self.pipeline.transform(X=None, dataset_split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **self.get_params())
-
-        self._fit(train_generator, validation_generator)
-
-        # Mark the state so it doesnt get refit and can now be saved
-        self.state['fitted'] = True
-
-        return self
-
-    def _fit(self, train_generator, validation_generator=None):
-        '''
-        Keras fit parameters (epochs, callbacks...) are stored as self.params so
-        retrieve them automatically
-        '''
-        # Generator doesnt take arbitrary params so pop the extra ones
-        extra_params = ['batch_size']
-        params = {k:v for k, v in self.get_params().items() if k not in extra_params}
-        self.external_model.fit_generator(
-            generator=train_generator, validation_data=validation_generator, **params)
-
-    def _predict(self, X, end_index, max_length=None, **kwargs):
-        '''
-        Inference network differs from training one so gets established dynamically
-        at inference time. Does NOT get persisted since the weights are duplicative
-        to the training ones. And the training network can in theory be updated
-        with new training data later
-
-        Runs full encoder/decoder loop
-        1) Encodes input into initial decoder state
-        2) Loops through decoder state until:
-            - End token is predicted
-            - Max length is reached
-
-        Generator Pipeline yields batches so yield batches as well
-        '''
-        self.check_for_models()
-
-        # X is a generator tuple of encoder_input, decoder_input
-        for batch in X:
-            encoder_input, predicted_sequence = batch
-
-        # Encode the input as state vectors for the decoder.
-        encoder_states = self.encode(encoder_input)
-        decoder_states = [encoder_states, encoder_states]  # GRU uses single state vs lstm's h, c
-
-        while True:
-            decoder_output_and_states = self.decode([predicted_sequence] + decoder_states)
-            decoder_prediction = decoder_output_and_states[0]
-            decoder_states = decoder_output_and_states[1:]  # Multiple for lstm, single for gru
-
-            # Next tokens
-            next_tokens = np.argmax(decoder_prediction, axis=1).reshape(-1, 1)
-            if len(predicted_sequence.shape) == 1:  # 1d array
-                axis = 0
-            else:
-                axis = 1
-            predicted_sequence = np.concatenate([predicted_sequence, next_tokens], axis=axis)
-
-            # Exit conditions
-            # TODO: generic support for different length sequences
-            if (next_tokens == end_index).any() or (max_length is not None and predicted_sequence.shape[axis] >= max_length):
-                break
-
-        return predicted_sequence
-
-
-class ImageContextCaptionDecoder(GeneratorKerasEncoderDecoder):
+class ImageContextCaptionDecoder(KerasEncoderDecoderStateClassifier):
     '''
     Networks used for training and predicting a seq2seq caption using
     an input image as the initial decoder state (does not feed the image in at
@@ -339,7 +248,7 @@ class ImageContextCaptionDecoder(GeneratorKerasEncoderDecoder):
         return encoder_model, decoder_model
 
 
-class ImageCaptionDecoder(GeneratorKerasEncoderDecoder):
+class ImageCaptionDecoder(KerasEncoderDecoderStatelessClassifier):
     '''
     Networks used for training and predicting a seq2seq caption using
     an input image in every timestep
@@ -471,7 +380,6 @@ class ImageCaptionDecoder(GeneratorKerasEncoderDecoder):
         encoder_model = model(image_input, img_bottleneck)
         encoder_model.compile(loss='sparse_categorical_crossentropy',
                               optimizer='adam')
-        print(encoder_model.summary())
 
         #################
         # Decoder Input #
@@ -516,48 +424,5 @@ class ImageCaptionDecoder(GeneratorKerasEncoderDecoder):
         decoder_model = model([caption_input, decoder_image_input], next_token_prediction)
         decoder_model.compile(loss='sparse_categorical_crossentropy',
                               optimizer='adam')
-        print(decoder_model.summary())
 
         return encoder_model, decoder_model
-
-    def _predict(self, X, end_index, max_length=None, **kwargs):
-        '''
-        Inference network differs from training one so gets established dynamically
-        at inference time. Does NOT get persisted since the weights are duplicative
-        to the training ones. And the training network can in theory be updated
-        with new training data later
-
-        Runs full encoder/decoder loop
-        1) Encodes input into initial decoder state
-        2) Loops through decoder state until:
-            - End token is predicted
-            - Max length is reached
-
-        Generator Pipeline yields batches so yield batches as well
-        '''
-        self.check_for_models()
-
-        # X is a generator tuple of encoder_input, decoder_input
-        for batch in X:
-            encoder_input, predicted_sequence = batch
-
-        # Encode the input as state vectors for the decoder.
-        encoded_image = self.encode(encoder_input)
-
-        while True:
-            decoder_prediction = self.decode([predicted_sequence, encoded_image])
-
-            # Next tokens
-            next_tokens = np.argmax(decoder_prediction, axis=1).reshape(-1, 1)
-            if len(predicted_sequence.shape) == 1:  # 1d array
-                axis = 0
-            else:
-                axis = 1
-            predicted_sequence = np.concatenate([predicted_sequence, next_tokens], axis=axis)
-
-            # Exit conditions
-            # TODO: generic support for different length sequences
-            if (next_tokens == end_index).any() or (max_length is not None and predicted_sequence.shape[axis] >= max_length):
-                break
-
-        return predicted_sequence.squeeze()

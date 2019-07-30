@@ -5,7 +5,7 @@ Module for database initialization
 __author__ = 'Elisha Yadgaran'
 
 
-from simpleml.utils import Database
+from simpleml.utils import Database, BaseDatabase
 from .models import BaseModel
 
 
@@ -14,9 +14,9 @@ class SimpleMLDatabase(Database):
         super(SimpleMLDatabase, self).__init__(configuration_section='simpleml-captioner')
 
 
-class AppDatabase(Database):
+class AppDatabase(BaseDatabase):
     def __init__(self):
         super(AppDatabase, self).__init__(configuration_section='app-captioner')
 
     def initialize(self, **kwargs):
-        self._initialize(BaseModel, **kwargs)
+        super(AppDatabase, self).initialize([BaseModel], create_tables=True, **kwargs)

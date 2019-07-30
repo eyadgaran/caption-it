@@ -38,7 +38,7 @@ def train():
     text_raw_dataset_kwargs = {
         'project': 'captioner', 'name': 'coco_captions', 'strict': False,
         'registered_name': 'MSCocoStreamingCaptionsRawDataset',
-        'label_columns': ['y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6']
+        'label_columns': ['y_0', 'y_1', 'y_2', 'y_3', 'y_4', 'y_5', 'y_6'],
     }
     raw_dataset = DatasetCreator.retrieve_or_create(**text_raw_dataset_kwargs)
 
@@ -57,14 +57,14 @@ def train():
 
     text_dataset_kwargs = {
         'project': 'captioner', 'name': 'text_dataset', 'strict': False,
-        'registered_name': 'MSCocoCaptionsDataset'
+        'registered_name': 'MSCocoCaptionsDataset',
     }
     text_dataset = DatasetCreator.retrieve_or_create(
         pipeline=text_dataset_pipeline, **text_dataset_kwargs)
 
     text_pipeline_kwargs = {
         'project': 'captioner', 'name': 'text_pipeline', 'strict': False,
-        'registered_name': 'BaseExplicitSplitPipeline',
+        'registered_name': 'ExplicitSplitPipeline',
         'transformers': [
               ('squeeze_to_series', SqueezeTransformer()),
               ('tokenize', NLTKTweetTokenizer(strip_handles=True, preserve_case=False, reduce_len=True)),
@@ -119,14 +119,14 @@ def train():
 
     image_dataset_kwargs = {
         'project': 'captioner', 'name': 'image_dataset', 'strict': False,
-        'registered_name': 'MSCocoStreamingCaptionsEncodedDataset', 'label_columns': ['y']
+        'registered_name': 'MSCocoStreamingCaptionsEncodedDataset', 'label_columns': ['y'],
     }
     image_dataset = DatasetCreator.retrieve_or_create(
         pipeline=image_dataset_pipeline, **image_dataset_kwargs)
 
     image_pipeline_kwargs = {
         'project': 'captioner', 'name': 'image_pipeline', 'strict': False,
-        'registered_name': 'NoFitExplicitSplitPipeline',
+        'registered_name': 'PreprocessedPipeline', 'fitted': True,
         'transformers': [
               ('load_images', ImageLoader(column='image')),
               ('crop', CropImageToSquares(column='image')),
@@ -140,29 +140,26 @@ def train():
     image_pipeline = PipelineCreator.retrieve_or_create(
         dataset=image_dataset, **image_pipeline_kwargs)
 
-    # Preprocess for training speed
-    # encode_all_images(
-    #     pd.concat([
-    #         image_dataset.get('X', TRAIN_SPLIT),
-    #         image_dataset.get('X', VALIDATION_SPLIT)
-    #     ], axis=0),
-    #     image_pipeline)
-
     # Decoder
-    # early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=3, verbose=1, mode='auto')
-    # checkpoint = ModelCheckpoint('checkpoints/weights.{epoch:02d}-{val_loss:.2f}.hdf5', verbose=1, period=10)
+    early = EarlyStopping(monitor='val_loss', min_delta=0.001, patience=25, verbose=1, mode='auto')
+    checkpoint = ModelCheckpoint('checkpoints/weights.run-{image_pipeline}.{{epoch:02d}}-{{val_loss:.2f}}.hdf5'.format(image_pipeline=image_pipeline.id), verbose=1, period=25)
     image_model_kwargs = {
         'project': 'captioner', 'name': 'image_model', 'strict': False,
-        'registered_name': 'ImageDecoder',
+        'registered_name': 'ImageCaptionDecoder',
         'external_model_kwargs': {
             'vocabulary_size': len(LATEST_TEXT_MODEL.external_model.vocabulary_),
             'pad_length': PAD_LENGTH,
             'pad_index': LATEST_TEXT_MODEL.external_model.pad_index
         },
-        'params': {'shuffle': True, 'batch_size': 32, 'epochs': 250,
+        'params': {'epochs': 500,
                    'steps_per_epoch': 100, 'validation_steps': 50,
-                   'use_multiprocessing': False, 'workers': 0,
-                   'callbacks': []}
+                   'use_multiprocessing': False, 'workers': 5,
+                   'callbacks': [early, checkpoint]},
+        'use_training_generator': True,
+        'use_validation_generator': True,
+        'use_sequence_object': True,
+        'training_generator_params': {'shuffle': True, 'batch_size': 32},
+        'validation_generator_params': {'shuffle': True, 'batch_size': 32},
     }
 
     # image_model = ModelCreator.retrieve_or_create(
@@ -171,10 +168,9 @@ def train():
     # Use preprocessed data
     image_model = ImageCaptionDecoder(**image_model_kwargs)
     image_model.add_pipeline(image_pipeline)
-    train_generator = preprocessed_generator(image_dataset, split=TRAIN_SPLIT, return_y=True, infinite_loop=True, **image_model.get_params())
-    validation_generator = preprocessed_generator(image_dataset, split=VALIDATION_SPLIT, return_y=True, infinite_loop=True, **image_model.get_params())
-    image_model.external_model.load_weights('checkpoints/weights.20-1.95.hdf5')
-    image_model.fit(train_generator, validation_generator)
+    image_model.fit()
+    image_model.params.pop('callbacks', [])
+    image_model.params.pop('initial_epoch', None)
     image_model.save()
 
 
