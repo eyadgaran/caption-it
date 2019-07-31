@@ -2,7 +2,7 @@
 
 Fun little demonstration of encoder-decoder architectures. Try captioning your favorite image!
 
-[yadgaran.net/projects/caption-it](yadgaran.net/projects/caption-it)
+[https://caption-it.projects.yadgaran.net/](https://caption-it.projects.yadgaran.net/)
 
 # How it works
 
